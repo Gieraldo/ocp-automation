@@ -1,0 +1,11 @@
+- name: Cek koneksi ke Red Hat dengan curl
+  hosts: localhost
+  tasks:
+    - name: Jalankan curl ke redhat.com
+      ansible.builtin.command: curl -Is https://www.redhat.com | head -n 1
+      register: curl_result
+      ignore_errors: yes
+
+    - name: Tampilkan hasil
+      debug:
+        var: curl_result.stdout

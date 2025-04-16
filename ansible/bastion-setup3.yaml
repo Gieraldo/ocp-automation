@@ -1,0 +1,348 @@
+---
+- name: Setup Bastion Host for OpenShift
+  hosts: local
+  become: true
+  vars:
+    openshift_version: "latest"
+    installer_dir: "/root/ocp-cluster"
+    openshift_install_path: "/usr/local/bin/openshift-install"
+    oc_client_path: "/usr/local/bin/oc"
+    required_services:
+      - httpd
+      - haproxy
+      - dnsmasq
+
+  tasks:
+    # Step 1: Check for required services and install them if needed
+    - name: Check if required services are installed
+      command: rpm -q {{ item }}
+      register: service_check
+      changed_when: false
+      failed_when: false
+      with_items:
+        - httpd
+        - haproxy
+        - dnsmasq
+
+    # Step 2: Update system and install packages
+    - name: Update system and install required packages
+      dnf:
+        name:
+          - vim
+          - httpd
+          - haproxy
+          - dnsmasq
+          - tar
+          - wget
+          - python3
+          - python3-pip
+          - git
+          - net-tools
+          - bind-utils
+          - iptables-services
+          - bash-completion
+        state: present
+        update_cache: yes
+
+    # Step 3: Ensure service directories exist
+    - name: Ensure service directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - /etc/dnsmasq.d
+        - /etc/haproxy
+        - /var/www/html
+
+    # Step 4: Configure dnsmasq with better error handling
+    - name: Configure dnsmasq
+      template:
+        src: templates/dnsmasq.conf.j2
+        dest: /etc/dnsmasq.conf
+      register: dnsmasq_config
+
+    # Step 5: Enable and start dnsmasq with better error handling
+    - name: Enable and start dnsmasq
+      systemd:
+        name: dnsmasq
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      register: dnsmasq_service
+
+
+    - name: Debug dnsmasq service status
+      debug:
+        msg: "Failed to start dnsmasq. Will attempt to diagnose the issue."
+      when: dnsmasq_service.failed
+
+    # Step 6: Configure HTTPD
+    - name: Ensure /var/www/html directory exists
+      file:
+        path: /var/www/html
+        state: directory
+        mode: '0755'
+
+    - name: Configure httpd for Ignition files
+      copy:
+        dest: /etc/httpd/conf.d/ignition.conf
+        content: |
+          <Directory /var/www/html>
+            Options +Indexes
+            AllowOverride None
+            Require all granted
+          </Directory>
+      notify: Restart httpd
+
+    # Step 7: Start and enable httpd with better error handling
+    - name: Enable and start httpd
+      systemd:
+        name: httpd
+        enabled: yes
+        state: started
+      register: httpd_service
+
+
+    - name: Debug httpd service status
+      debug:
+        msg: "Failed to start httpd. Will attempt to diagnose the issue."
+      when: httpd_service.failed
+
+    # Step 8: Diagnose httpd if it failed to start
+    - name: Check httpd error logs
+      shell: "tail -20 /var/log/httpd/error_log || echo 'No error log found'"
+      register: httpd_error_log
+      when: httpd_service.failed
+      changed_when: false
+
+    - name: Display httpd errors
+      debug:
+        msg: "{{ httpd_error_log.stdout_lines }}"
+      when: httpd_service.failed
+
+    # Step 9: Configure HAProxy with better error handling
+    - name: Configure HAProxy
+      template:
+        src: templates/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+      register: haproxy_config
+
+    # Step 10: Enable and start haproxy with better error handling
+    - name: Enable and start haproxy
+      systemd:
+        name: haproxy
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      register: haproxy_service
+
+
+    - name: Debug haproxy service status
+      debug:
+        msg: "Failed to start haproxy. Will attempt to diagnose the issue."
+      when: haproxy_service.failed
+
+    # Step 11: Download and prepare OpenShift installer
+    - name: Check if OpenShift Installer exists
+      stat:
+        path: "{{ openshift_install_path }}"
+      register: openshift_installer
+
+    - name: Create temporary download directory
+      file:
+        path: /tmp/openshift-downloads
+        state: directory
+        mode: '0755'
+      when: not openshift_installer.stat.exists
+
+    - name: Download OpenShift Installer
+      get_url:
+        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ openshift_version }}/openshift-install-linux.tar.gz"
+        dest: "/tmp/openshift-downloads/openshift-install.tar.gz"
+        mode: '0644'
+      register: download_installer
+
+      when: not openshift_installer.stat.exists
+
+    - name: Debug installer download
+      debug:
+        msg: "Failed to download OpenShift installer. Please check connectivity to the mirror."
+      when: download_installer.failed is defined and download_installer.failed
+
+    - name: Extract OpenShift Installer
+      ansible.builtin.unarchive:
+        src: "/tmp/openshift-downloads/openshift-install.tar.gz"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+        mode: '0755'
+      when: download_installer is defined and download_installer.changed and not download_installer.failed
+
+      register: extract_installer
+
+    # Step 12: Download and prepare OC Client
+    - name: Check if OC Client is installed
+      stat:
+        path: "{{ oc_client_path }}"
+      register: oc_client_stat
+
+    - name: Download OC Client
+      get_url:
+        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{{ openshift_version }}/openshift-client-linux.tar.gz"
+        dest: "/tmp/openshift-downloads/openshift-client.tar.gz"
+        mode: '0644'
+      register: download_oc
+
+      when: not oc_client_stat.stat.exists
+
+    - name: Debug OC client download
+      debug:
+        msg: "Failed to download OC client. Please check connectivity to the mirror."
+      when: download_oc.failed is defined and download_oc.failed
+
+    - name: Extract OC Client
+      ansible.builtin.unarchive:
+        src: "/tmp/openshift-downloads/openshift-client.tar.gz"
+        dest: "/usr/local/bin/"
+        remote_src: yes
+        mode: '0755'
+      when: download_oc is defined and download_oc.changed and not download_oc.failed
+
+      register: extract_oc
+
+    # Step 13: Prepare OpenShift Installation
+    - name: Create OpenShift installation directory
+      file:
+        path: "{{ installer_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy install-config.yaml
+      template:
+        src: templates/install-config.yaml.j2
+        dest: "{{ installer_dir }}/install-config.yaml"
+        mode: '0644'
+
+    # Step 14: Generate manifests with better error handling
+    - name: Check if openshift-install is available
+      command: which openshift-install
+      changed_when: false
+
+      register: openshift_install_available
+
+    - name: Generate OpenShift manifests
+      command:
+        cmd: "openshift-install create manifests"
+        chdir: "{{ installer_dir }}"
+      args:
+        creates: "{{ installer_dir }}/manifests"
+      when: openshift_install_available.rc == 0
+      register: generate_manifests
+
+
+    - name: Debug manifest generation
+      debug:
+        msg: "Failed to generate OpenShift manifests: {{ generate_manifests.stderr }}"
+      when: generate_manifests.rc is defined and generate_manifests.rc != 0
+
+    # Step 15: Update cluster configuration
+    - name: Check if master and worker machine YAML files exist
+      stat:
+        path: "{{ item }}"
+      register: machine_yaml_check
+
+      with_items:
+        - "{{ installer_dir }}/openshift/99_openshift-cluster-api_master-machines.yaml"
+        - "{{ installer_dir }}/openshift/99_openshift-cluster-api_worker-machineset.yaml"
+
+    - name: Remove master and worker machine YAML files
+      file:
+        path: "{{ item.item }}"
+        state: absent
+      when: item.stat.exists
+      with_items: "{{ machine_yaml_check.results }}"
+
+    - name: Check if cluster-scheduler-02-config.yml exists
+      stat:
+        path: "{{ installer_dir }}/manifests/cluster-scheduler-02-config.yml"
+      register: scheduler_config_check
+
+    - name: Update cluster-scheduler-02-config.yaml
+      replace:
+        path: "{{ installer_dir }}/manifests/cluster-scheduler-02-config.yml"
+        regexp: 'mastersSchedulable: true'
+        replace: 'mastersSchedulable: false'
+      when: scheduler_config_check.stat.exists
+      register: update_scheduler
+
+
+    # Step 16: Generate Ignition files with better error handling
+    - name: Generate Ignition files
+      command:
+        cmd: "openshift-install create ignition-configs"
+        chdir: "{{ installer_dir }}"
+      args:
+        creates: "{{ installer_dir }}/bootstrap.ign"
+      register: generate_ignition
+
+      when: openshift_install_available.rc == 0
+
+    - name: Debug ignition generation
+      debug:
+        msg: "Failed to generate Ignition files: {{ generate_ignition.stderr }}"
+      when: generate_ignition.rc is defined and generate_ignition.rc != 0
+
+    # Step 17: Check and publish bootstrap.ign
+    - name: Check if bootstrap.ign exists
+      stat:
+        path: "{{ installer_dir }}/bootstrap.ign"
+      register: bootstrap_ign_check
+
+    - name: Move bootstrap ignition file to /var/www/html/
+      copy:
+        src: "{{ installer_dir }}/bootstrap.ign"
+        dest: "/var/www/html/bootstrap.ign"
+        remote_src: yes
+        mode: '0644'
+      when: bootstrap_ign_check.stat.exists
+      notify: Restart httpd
+      register: copy_bootstrap
+
+
+    - name: Debug bootstrap.ign copy
+      debug:
+        msg: "Failed to copy bootstrap.ign: {{ copy_bootstrap.msg }}"
+      when: copy_bootstrap.failed is defined and copy_bootstrap.failed
+
+    # Step 18: Deployment summary
+    - name: Deployment Summary
+      debug:
+        msg:
+          - "==== OpenShift Deployment Status ===="
+          - "DNSMASQ: {{ 'Running' if not dnsmasq_service.failed else 'Failed to start' }}"
+          - "HTTPD: {{ 'Running' if not httpd_service.failed else 'Failed to start' }}"
+          - "HAProxy: {{ 'Running' if not haproxy_service.failed else 'Failed to start' }}"
+          - "OpenShift Installer: {{ 'Installed' if openshift_installer.stat.exists else 'Not installed' }}"
+          - "OC Client: {{ 'Installed' if oc_client_stat.stat.exists else 'Not installed' }}"
+          - "Manifests: {{ 'Generated' if generate_manifests.rc is defined and generate_manifests.rc == 0 else 'Not generated' }}"
+          - "Ignition files: {{ 'Generated' if bootstrap_ign_check.stat.exists else 'Not generated' }}"
+          - "Bootstrap.ign in web server: {{ 'Available' if copy_bootstrap is defined and not copy_bootstrap.failed else 'Not available' }}"
+
+  handlers:
+    - name: Restart dnsmasq
+      systemd:
+        name: dnsmasq
+        state: restarted
+
+
+    - name: Restart haproxy
+      systemd:
+        name: haproxy
+        state: restarted
+
+
+    - name: Restart httpd
+      systemd:
+        name: httpd
+        state: restarted
+

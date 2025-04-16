@@ -18,7 +18,7 @@
       register: curl_script_output
       ignore_errors: true
 
-    - name: Display the output of the curl.sh script
+    - name: Display the output of the curl.sh script 
       debug:
         var: curl_script_output.stdout_lines
   

@@ -3,7 +3,7 @@
   hosts: localhost
   become: true
   vars:
-    openshift_script_path: "/mnt/d/IZENO/Aldo/ocp-automation/ansible/scipt/curl.sh"
+    openshift_script_path: "script/curl.sh"
 
   tasks:
 

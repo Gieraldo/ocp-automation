@@ -1,5 +1,5 @@
 ---
-- name: Healthcheck OpenShift Cluster
+- name: Prerequired Check OpenShift Cluster
   hosts: localhost
   become: true
   vars:
@@ -116,3 +116,14 @@
     # - name: 📄 API Server version info
     #   debug:
     #     var: api_version.stdout_lines
+
+    - name: 🌐 Check nslookup api.openshift
+      shell: |
+        nslookup https://api.$(oc get infrastructure cluster -o jsonpath='{.status.apiServerInternalURI}'
+      register: nslookup_result
+      ignore_errors: true
+    
+    - name: 📄 Result nslookup API
+      debug: 
+        var: nslookup_result.stdout_lines
+    

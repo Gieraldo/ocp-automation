@@ -1,0 +1,21 @@
+- name: Cek koneksi ke beberapa URL Red Hat
+  hosts: redhat_urls
+  connection: local
+  tasks:
+    - name: Cek koneksi ke setiap URL
+      ansible.builtin.uri:
+        url: "{{ ansible_host }}"
+        method: GET
+        return_content: no
+      register: result
+      ignore_errors: yes
+
+    - name: Tampilkan hasil koneksi yang BERHASIL (200)
+      debug:
+        msg: "✅ BERHASIL: URL {{ ansible_host }} - Status: {{ result.status }}"
+      when: result.status is defined and result.status == 200
+
+    - name: Tampilkan hasil koneksi yang GAGAL (selain 200)
+      debug:
+        msg: "❌ GAGAL: URL {{ ansible_host }} - Status: {{ result.status | default('-1') }}"
+      when: result.status is not defined or result.status != 200

@@ -1,0 +1,4 @@
+- hosts: local
+  tasks:
+    - name: Cek hostname
+      command: hostname

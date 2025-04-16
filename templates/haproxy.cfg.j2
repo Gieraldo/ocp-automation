@@ -1,0 +1,77 @@
+
+# HAProxy Stats
+listen stats
+    bind :9000
+    mode http
+    stats enable
+    stats uri /
+
+# OpenShift API Server
+frontend openshift-api-server
+    bind *:6443
+    default_backend openshift-api-server
+    mode tcp
+    option tcplog
+
+backend openshift-api-server
+    balance source
+    mode tcp
+    timeout connect 5s
+    timeout server 30s
+    timeout client 30s
+    # Server belum tersedia, nonaktifkan check
+    # server bootstrap 172.31.20.101:6443 check disabled
+    # server master01 172.31.20.102:6443 check disabled
+    # server master02 172.31.20.103:6443 check disabled
+    # server master03 172.31.20.104:6443 check disabled
+
+# Machine Config Server
+frontend machine-config-server
+    bind *:22623
+    default_backend machine-config-server
+    mode tcp
+    option tcplog
+
+backend machine-config-server
+    balance source
+    mode tcp
+    timeout connect 5s
+    timeout server 30s
+    timeout client 30s
+    # server bootstrap 172.31.20.101:22623 check disabled
+    # server master01 172.31.20.102:22623 check disabled
+    # server master02 172.31.20.103:22623 check disabled
+    # server master03 172.31.20.104:22623 check disabled
+
+# Ingress HTTP
+frontend ingress-http
+    bind *:80
+    default_backend ingress-http
+    mode tcp
+    option tcplog
+
+backend ingress-http
+    balance source
+    mode tcp
+    timeout connect 5s
+    timeout server 30s
+    timeout client 30s
+    # server worker1 172.31.20.110:80 check disabled
+    # server worker2 172.31.20.111:80 check disabled
+
+# Ingress HTTPS
+frontend ingress-https
+    bind *:443
+    default_backend ingress-https
+    mode tcp
+    option tcplog
+
+backend ingress-https
+    balance source
+    mode tcp
+    timeout connect 5s
+    timeout server 30s
+    timeout client 30s
+    # server worker1 172.31.20.110:443 check disabled
+    # server worker2 172.31.20.111:443 check disabled
+

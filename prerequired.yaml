@@ -41,7 +41,7 @@
 
     - name: 🌐 Check TCP connection to vCenter using netcat
       shell: |
-        nc -zv {{ vcenter_ip }} 443 && echo "✅ Connected" || echo "❌ Failed"
+        curl -vk http://{{ vcenter_ip }}:443 && echo "✅ Connected" || echo "❌ Failed"
       register: vcenter_check_output
       ignore_errors: true
 

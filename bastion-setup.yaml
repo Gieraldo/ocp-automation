@@ -1,6 +1,6 @@
 ---
 - name: Setup Bastion Host for OpenShift
-  hosts: local
+  hosts: localhost
   become: true
   tasks:
 
@@ -10,6 +10,7 @@
         name:
           - vim
           - httpd
+          - dhcp-server
           - haproxy
           - dnsmasq
           - tar
@@ -37,12 +38,27 @@
         state: started
       ignore_errors: true
 
+    # Konfigurasi DHCP Server
+    - name: Copy DHCP server configuration
+      template:
+        src: templates/dhcpd.conf.j2
+        dest: /etc/dhcp/dhcpd.conf
+      notify: Restart dhcpd
+
+    - name: Enable and start DHCP server
+      systemd:
+        name: dhcpd
+        enabled: yes
+        state: started
+      ignore_errors: true
+
     # Konfigurasi HTTPD untuk menyajikan file Ignition
     - name: Enable and start httpd
       systemd:
         name: httpd
         enabled: yes
         state: started
+      ignore_errors: true
 
     # Konfigurasi HAProxy untuk Load Balancer
     - name: Configure HAProxy
@@ -56,15 +72,20 @@
         name: haproxy
         enabled: yes
         state: started
+      ignore_errors: true
+
+    - name: Check if OpenShift Installer exists
+      stat:
+        path: /usr/local/bin/openshift-install
+      register: openshift_installer
 
     # Unduh & Ekstrak OpenShift Installer hanya jika belum ada
     - name: Download OpenShift Installer (if not exists)
       get_url:
-        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/openshift-install-linux.tar.gz"
+        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.16.38/openshift-install-linux.tar.gz"
         dest: "/root/openshift-install.tar.gz"
         mode: '0644'
-      args:
-        creates: "/usr/local/bin/openshift-install"
+      when: "not openshift_installer.stat.exists"
 
     - name: Extract OpenShift Installer
       ansible.builtin.unarchive:
@@ -74,15 +95,20 @@
         extra_opts: ['--no-overwrite-dir']
         mode: '0755'
         creates: "/usr/local/bin/openshift-install"
+      ignore_errors: true
 
     # Unduh & Ekstrak OC Client hanya jika belum ada
+    - name: Check if OC Client is installed
+      stat:
+        path: /usr/local/bin/oc
+      register: oc_client_stat
+
     - name: Download OC Client (if not exists)
       get_url:
-        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/openshift-client-linux.tar.gz"
+        url: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.16.38/openshift-client-linux.tar.gz"
         dest: "/root/openshift-client.tar.gz"
         mode: '0644'
-      args:
-        creates: "/usr/local/bin/oc"
+      when: not oc_client_stat.stat.exists
 
     - name: Extract OC Client
       ansible.builtin.unarchive:
@@ -92,6 +118,7 @@
         extra_opts: ['--no-overwrite-dir']
         mode: '0755'
         creates: "/usr/local/bin/oc"
+      ignore_errors: true
 
     # Persiapan Direktori Instalasi OpenShift
     - name: Create OpenShift installation directory
@@ -106,13 +133,38 @@
         dest: "/root/ocp-cluster/install-config.yaml"
         mode: '0644'
 
-    # Generate Manifest OpenShift
     - name: Generate OpenShift manifests
-      command:
-        cmd: "openshift-install create manifests"
-        chdir: "/root/ocp-cluster"
+      command: "openshift-install create manifests"
       args:
+        chdir: "/root/ocp-cluster"
         creates: "/root/ocp-cluster/manifests"
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin"
+      register: manifests_output
+      failed_when: manifests_output.rc != 0
+
+    - name: Show manifest generation output
+      debug:
+        var: manifests_output.stdout_lines
+
+    - name: Check if manifests directory exists
+      stat:
+        path: /root/ocp-cluster/manifests
+      register: manifests_dir
+
+    - name: Check if openshift directory exists
+      stat:
+        path: /root/ocp-cluster/openshift
+      register: openshift_dir
+
+    - name: Backup manifests and openshift directories to /tmp
+      shell: |
+        cp -r /root/ocp-cluster/manifests /tmp/ocp-cluster-manifests-backup && \
+        cp -r /root/ocp-cluster/openshift /tmp/ocp-cluster-openshift-backup
+      when:
+        - manifests_dir.stat.exists
+        - openshift_dir.stat.exists
+      ignore_errors: true
 
     # Hapus YAML Master & Worker Machineset jika ada
     - name: Remove master and worker machine YAML files
@@ -129,14 +181,22 @@
         path: "/root/ocp-cluster/manifests/cluster-scheduler-02-config.yml"
         regexp: 'mastersSchedulable: true'
         replace: 'mastersSchedulable: false'
+      ignore_errors: true
 
     # Generate Ignition Files setelah manifest dikonfigurasi
     - name: Generate Ignition files
-      command:
-        cmd: "openshift-install create ignition-configs"
-        chdir: "/root/ocp-cluster"
+      command: "openshift-install create ignition-configs"
       args:
+        chdir: "/root/ocp-cluster"
         creates: "/root/ocp-cluster/bootstrap.ign"
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin"
+      register: ignition_output
+      failed_when: ignition_output.rc != 0
+
+    - name: Show ignition generation output
+      debug:
+        var: ignition_output.stdout_lines
 
     # Pindahkan bootstrap.ign ke web server untuk provisioning
     - name: Move bootstrap ignition file to /var/www/html/
@@ -146,20 +206,29 @@
         remote_src: yes
         mode: '0644'
       notify: Restart httpd
+      ignore_errors: true
 
   handlers:
     - name: Restart dnsmasq
       systemd:
         name: dnsmasq
         state: restarted
+      ignore_errors: true
 
     - name: Restart haproxy
       systemd:
         name: haproxy
         state: restarted
+      ignore_errors: true
 
     - name: Restart httpd
       systemd:
         name: httpd
         state: restarted
+      ignore_errors: true
 
+    - name: Restart dhcpd
+      systemd:
+        name: dhcpd
+        state: restarted
+      ignore_errors: true

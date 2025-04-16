@@ -48,26 +48,32 @@
       debug:
         var: vcenter_check_output.stdout_lines
 
-    - name: 🔁 Check PTR Records for all OpenShift nodes
+    - name: 🔁 Check PTR Record(s) for local host IP(s)
       shell: |
-        for host in $(hostname -i); do
-          ip=$(hostname -i)
-          ptr=$(dig +short -x "$ip")
-          echo "$host ($ip) -> $ptr"
-        done
+          for ip in $(hostname -I); do
+            ptr=$(dig +short -x "$ip")
+            if [[ -z "$ptr" ]]; then
+              echo "$ip ❌ No PTR record"
+            else
+              echo "$ip ✅ PTR: $ptr"
+            fi
+          done
       register: ptr_check_output
       ignore_errors: true
 
-    - name: 📄 PTR record check result
-      debug:
-        var: ptr_check_output.stdout_lines
-
+    # - name: 📄 PTR record check result
+    #   debug:
+    #     var: ptr_check_output.stdout_lines
     # - name: 🔁 Check PTR Records for all OpenShift nodes
     #   shell: |
     #     for host in $(oc get nodes -o name | awk -F/ '{print $2}'); do
     #       ip=$(oc get node "$host" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
     #       ptr=$(dig +short -x "$ip")
-    #       echo "$host ($ip) -> $ptr"
+    #       if [[ -z "$ptr" ]]; then
+    #         echo "$host ($ip) ❌ No PTR record"
+    #       else
+    #         echo "$host ($ip) ✅ PTR: $ptr"
+    #       fi
     #     done
     #   register: ptr_check_output
     #   ignore_errors: true
@@ -119,11 +125,10 @@
 
     - name: 🌐 Check nslookup api.openshift
       shell: |
-        nslookup https://api.$(oc get infrastructure cluster -o jsonpath='{.status.apiServerInternalURI}'
+        nslookup {{ vcenter_ip }}
       register: nslookup_result
       ignore_errors: true
-    
+
     - name: 📄 Result nslookup API
-      debug: 
+      debug:
         var: nslookup_result.stdout_lines
-    

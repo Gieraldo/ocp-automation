@@ -61,9 +61,10 @@
       register: ptr_check_output
       ignore_errors: true
 
-    # - name: 📄 PTR record check result
-    #   debug:
-    #     var: ptr_check_output.stdout_lines
+    - name: 📄 PTR record check result
+      debug:
+        var: ptr_check_output.stdout_lines
+
     # - name: 🔁 Check PTR Records for all OpenShift nodes
     #   shell: |
     #     for host in $(oc get nodes -o name | awk -F/ '{print $2}'); do

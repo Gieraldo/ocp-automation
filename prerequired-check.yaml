@@ -5,6 +5,7 @@
   vars:
     openshift_script_curl_path: "script/curl.sh"
     openshift_script_health_path: "script/cluster-health.sh"
+    openshift_api_server_url: "api.cluster-t4fkg.dynamic.redhatworkshops.io"
     vcenter_ip: "172.31.16.254"
 
   tasks:
@@ -51,40 +52,40 @@
       debug:
         var: vcenter_check_output.stdout_lines
 
-    - name: 🔁 Check PTR Record(s) for local host IP(s)
-      shell: |
-          for ip in $(hostname -I); do
-            ptr=$(dig +short -x "$ip")
-            if [[ -z "$ptr" ]]; then
-              echo "$ip ❌ No PTR record"
-            else
-              echo "$ip ✅ PTR: $ptr"
-            fi
-          done
-      register: ptr_check_output
-      ignore_errors: true
-
-    - name: 📄 PTR record check result
-      debug:
-        var: ptr_check_output.stdout_lines
-
-    # - name: 🔁 Check PTR Records for all OpenShift nodes
+    # - name: 🔁 Check PTR Record(s) for local host IP(s)
     #   shell: |
-    #     for host in $(oc get nodes -o name | awk -F/ '{print $2}'); do
-    #       ip=$(oc get node "$host" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-    #       ptr=$(dig +short -x "$ip")
-    #       if [[ -z "$ptr" ]]; then
-    #         echo "$host ($ip) ❌ No PTR record"
-    #       else
-    #         echo "$host ($ip) ✅ PTR: $ptr"
-    #       fi
-    #     done
+    #       for ip in $(hostname -I); do
+    #         ptr=$(dig +short -x "$ip")
+    #         if [[ -z "$ptr" ]]; then
+    #           echo "$ip ❌ No PTR record"
+    #         else
+    #           echo "$ip ✅ PTR: $ptr"
+    #         fi
+    #       done
     #   register: ptr_check_output
     #   ignore_errors: true
 
     # - name: 📄 PTR record check result
     #   debug:
     #     var: ptr_check_output.stdout_lines
+
+    - name: 🔁 Check PTR Records for all OpenShift nodes
+      shell: |
+        for host in $(oc get nodes -o name | awk -F/ '{print $2}'); do
+          ip=$(oc get node "$host" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+          ptr=$(dig +short -x "$ip")
+          if [[ -z "$ptr" ]]; then
+            echo "$host ($ip) ❌ No PTR record"
+          else
+            echo "$host ($ip) ✅ PTR: $ptr"
+          fi
+        done
+      register: ptr_check_output
+      ignore_errors: true
+
+    - name: 📄 PTR record check result
+      debug:
+        var: ptr_check_output.stdout_lines
 
     # ⏰ NTP Sync check
     - name: ⏰ Check NTP sync status
@@ -96,40 +97,29 @@
       debug:
         var: ntp_status.stdout_lines
 
-    # # 📦 PVC status check
-    # - name: 📦 Check PVC status in all namespaces
-    #   shell: oc get pvc --all-namespaces
-    #   register: pvc_status
-    #   ignore_errors: true
+    # 📦 PVC status check
+    - name: 📦 Check PVC status in all namespaces
+      shell: oc get pvc --all-namespaces
+      register: pvc_status
+      ignore_errors: true
 
-    # - name: 📄 PVC status output
-    #   debug:
-    #     var: pvc_status.stdout_lines
+    - name: 📄 PVC status output
+      debug:
+        var: pvc_status.stdout_lines
 
     # 🚨 Pods not running
-    # - name: 🚨 Check for pods not in Running state
-    #   shell: oc get pods --all-namespaces --field-selector=status.phase!=Running
-    #   register: pods_not_running
-    #   ignore_errors: true
+    - name: 🚨 Check for pods not in Running state
+      shell: oc get pods --all-namespaces --field-selector=status.phase!=Running
+      register: pods_not_running
+      ignore_errors: true
 
-    # - name: 📄 Pods not in Running phase
-    #   debug:
-    #     var: pods_not_running.stdout_lines
-
-    # # 🔐 Check API server version
-    # - name: 🔐 Check API Server version
-    #   shell: |
-    #     curl -k https://api.$(oc get infrastructure cluster -o jsonpath='{.status.apiServerInternalURI}' | sed 's|https://api\.||' | sed 's|:.*||')/version
-    #   register: api_version
-    #   ignore_errors: true
-
-    # - name: 📄 API Server version info
-    #   debug:
-    #     var: api_version.stdout_lines
+    - name: 📄 Pods not in Running phase
+      debug:
+        var: pods_not_running.stdout_lines
 
     - name: 🌐 Check nslookup api.openshift
       shell: |
-        nslookup {{ vcenter_ip }}
+        nslookup {{ openshift_api_server_url }}
       register: nslookup_result
       ignore_errors: true
 

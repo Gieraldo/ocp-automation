@@ -165,6 +165,11 @@
         - manifests_dir.stat.exists
         - openshift_dir.stat.exists
       ignore_errors: true
+      register: backup_folder_result
+    
+    - name: Show result backup manifest and openshift /tmp
+      debug:
+        var: backup_folder_result.stdout_lines
 
     # Hapus YAML Master & Worker Machineset jika ada
     - name: Remove master and worker machine YAML files

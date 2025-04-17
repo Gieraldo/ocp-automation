@@ -39,9 +39,11 @@
       debug:
         var: curl_script_output.stdout_lines
 
-    - name: 🌐 Check TCP connection to vCenter using netcat
+    - name: 🌐 Check TCP connection to vCenter on port 443
       shell: |
-        curl -vk http://{{ vcenter_ip }}:443 && echo "✅ Connected" || echo "❌ Failed"
+        timeout 5 bash -c "echo > /dev/tcp/{{ vcenter_ip }}/443" \
+          && echo "✅ TCP port 443 is OPEN on {{ vcenter_ip }}" \
+          || echo "❌ TCP port 443 is CLOSED or BLOCKED on {{ vcenter_ip }}"
       register: vcenter_check_output
       ignore_errors: true
 

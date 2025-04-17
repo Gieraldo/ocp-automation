@@ -208,6 +208,10 @@
       notify: Restart httpd
       ignore_errors: true
 
+    - name: Export path /usr/local/bin/
+      shell: |
+        export PATH=$PATH:/usr/local/bin && source ~/.bashrc
+
   handlers:
     - name: Restart dnsmasq
       systemd:
